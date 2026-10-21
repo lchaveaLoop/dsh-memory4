@@ -160,6 +160,7 @@ node --test          # 22+ 离线用例
   - 临时验证 profile `memory4test` / `memory4web` 已于 2026-10-21 按用户要求删除；`desktop` 与 `web` 两个正式 profile 保持安装。
   - **0.3.1 修复**：Settings「反思」曾报 `cannot get property 'llm' without inject`。原因是 host 插件未声明 LLM 服务 inject；现改为 `ctx.get('llm', false)` 获取服务，并在无会话的 UI 场景下复用最新活跃会话的路由模型。修复后点「反思」如仍报旧错，重启一次 Desktop 让 host 插件重新加载。
   - **0.3.2 修复**：点「反思」报 `model output was not a lessons array`。原因是模型可能输出解释文字、Markdown 代码块、数组或 `items` 等不同信封；现在解析器会扫描平衡 JSON、容忍多种信封、在失败时自动发起一次"修复为 JSON"的模型调用，并支持从编号/子弹行兜底提取结论；仍失败时审计保存原始输出并显示可读错误。
+  - **0.3.3 修复**：继续报同样错误。审计（`select * from audit where action='memory/reflection-parse-failed'`）显示原始输出只有 514 字符且在一个 `"text"` 字符串中间被截断——`reflect.maxTokens=700` 被推理 token 吃掉，JSON 不完整，旧解析无法抢救。现在：默认预算提升到 1600；`finish=max-tokens` 时自动加倍重试一次；从截断 JSON 中抢救已完整的 `"text"` 条目；失败审计记录 `finish=` 与最多 8000 字符原文。本机 desktop profile 已加 HMR `root` 监视，保存源码即热重载，无需重启（详见 §10）。
 
 ## 9. P2 功能（0.3.x，默认关闭）
 
@@ -218,3 +219,23 @@ node --test          # 22+ 离线用例
 
 - 导出：`/memory export md` 或 Settings「导出 Markdown」→ `$DSH_HOME/memory4/exports/*.md`。
 - 导入：`/memory import <绝对路径>`，支持本插件 JSON 导出（`records[].body`）与 Markdown 记录条目；导入按内容去重、落库前脱敏；单文件上限 2 MB。
+
+## 10. 开发期热重载（无需重启 Electron）
+
+DSH 的 HMR 默认只监视 profile 配置（`root: []`），所以**只改插件源码不会自动触发重载**；client 半由 `client-hmr` 轮询 bundle 自动热替换。本机已在 `desktop` profile 的 `cordis.patch.yml` 末尾加入：
+
+```yaml
+- id: hmr
+  disabled: false
+  config:
+    root: ["D:/Projects/dsh-memory4"]
+```
+
+效果与边界：
+
+- 保存 `D:/Projects/dsh-memory4/lib/*.js` / `test/**` 后，HMR 在文件稳定窗口（约 2s）后自动重载 host 插件；无需重启 Desktop。
+- `lib/client.js`（client 半）由 `client-hmr` 每 500ms 轮询 mtime/size，变化后经 `/plugins/events` SSE 热替换页面模块；保存后刷新当前 Settings 页即见新 UI。
+- **必须重启**的变更：`package.json` 的 `main`/`exports`/`dsh.client`/`dsh.bundle` 等元数据、新增/删除 client 入口、profile manifest 或依赖安装变化。
+- 插件级热插拔：Settings → 插件 中禁用再启用 `memory4` 会卸载/重挂插件（等价于一次 reload），无需重启应用。
+- 诊断：每次 apply 写 `memory4/start` 审计（version/pid）；`/memory log` 或数据库 `audit` 表可查重载历史；失败日志见 `memory/reflection-parse-failed`（含 `finish=` 与原始输出）。
+- 若不想再监视源码，删除该 `hmr` 条目或把 `root` 改回 `[]` 后重启。

@@ -101,7 +101,7 @@ D:\DSH\resources\runtime\cli\bin\dsh.cmd --profile web --dump-config | Select-St
       autoPromote: false        # true = 技能草稿自动批准（仍写审计）
       distillProvider: ''       # 空 = 复用当前会话最新路由模型
       distillModel: ''
-      distillMaxTokens: 512
+      distillMaxTokens: 900
       distillTimeoutMs: 20000
     reflect:
       enabled: false            # 开启后可在 turn/end 按间隔自动反思
@@ -110,6 +110,7 @@ D:\DSH\resources\runtime\cli\bin\dsh.cmd --profile web --dump-config | Select-St
       intervalHours: 24
       minEpisodes: 3
       maxItems: 5
+      maxTokens: 1600           # 反思输出预算；max-tokens 截断会自动加倍重试并抢救完整条目
     vector:
       enabled: false            # 可选：OpenAI 兼容 /embeddings 端点
       baseUrl: ''
@@ -162,11 +163,19 @@ cd D:\Projects\dsh-memory4
 node --test
 ```
 
-当前 45/45 通过（存储、检索、注入去重、压缩联动、技能草稿/审批、保留策略、命令、UI 路由与 client bundle、LLM 蒸馏/反思（含 ctx.get 服务访问、活跃会话路由复用、JSON 解析修复与子弹行兜底）、向量检索、Markdown 导入导出、插件生命周期，以及 A1–A6 验收场景）。安装与重启后验收步骤见 [INSTALL.md](INSTALL.md)。
+当前 47/47 通过（存储、检索、注入去重、压缩联动、技能草稿/审批、保留策略、命令、UI 路由与 client bundle、LLM 蒸馏/反思（含 ctx.get 服务访问、活跃会话路由复用、JSON 解析修复、截断抢救与重试）、向量检索、Markdown 导入导出、插件生命周期，以及 A1–A6 验收场景）。安装与重启后验收步骤见 [INSTALL.md](INSTALL.md)。
+
+## 开发期热重载（0.3.3 起本机 desktop profile 已配置）
+
+- **host 插件**：desktop profile 的 `cordis.patch.yml` 已加入 `hmr` 的 `root: ["D:/Projects/dsh-memory4"]`。保存 `lib/*.js` 后 HMR 自动重载插件（约几秒），无需重启 Desktop。
+- **client 插件**：`client-hmr` 每 500ms 轮询 `lib/client.js` 的 mtime/size，变化后经 `/plugins/events` SSE 热替换页面 UI，保存即生效。
+- **仍需重启 / 重装**：修改 `package.json` 的 `main`/`exports`/`dsh.client`/`dsh.bundle` 等元数据、新增 client 入口、profile manifest 或安装依赖变更。
+- **插件级热插拔**：Settings → 插件 中禁用/启用 `memory4` 会卸载/重挂 host 与 client，无需重启应用。
+- **诊断**：每次 host 插件 apply 都写 `memory4/start` 审计（含 version/pid）；`/memory log` 可查最近重载记录。
 
 ## 兼容性与版本
 
 - `dsh.engines.dsh: ">=0.2.1-rc.2 <0.3.0"`（npm/本机当前线）。
 - 依赖 DSH 插件 API：`ctx.tools`、`ctx.commands`、`ctx.sessionProjections`、`agent/pre-step`、`session/event`、`defineTool`、`createUserMessage`；可选 `ctx.llm.stream`（LLM 蒸馏/反思）与 `ctx.webServer`（Settings UI 路由）。
 - DSH 升级后需跑离线测试并复核 session 事件形状。
-- 版本：`0.3.2`（P2：LLM 蒸馏、反思聚合、向量检索、Markdown 导入导出；0.3.1 修复 LLM 服务访问；0.3.2 强化反思 JSON 解析：容忍信封/数组/代码块/解释文字，失败时自动修复调用并支持子弹行兜底）。
+- 版本：`0.3.3`（P2：LLM 蒸馏、反思聚合、向量检索、Markdown 导入导出；0.3.1 修复 LLM 服务访问；0.3.2 强化 JSON 解析；0.3.3 修复反思输出被 max-tokens 截断：自动加倍重试 + 从截断 JSON 抢救完整条目 + 审计记录 finish/原文）。

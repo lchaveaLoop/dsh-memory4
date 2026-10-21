@@ -60,6 +60,26 @@ function llmHostSequence(payloads) {
   return host
 }
 
+function llmHostScript(script) {
+  const host = {
+    logger: { warn() {}, debug() {} },
+    calls: 0,
+  }
+  host.llm = {
+    async *stream() {
+      const index = Math.min(host.calls, script.length - 1)
+      host.calls += 1
+      const item = script[index]
+      yield { type: 'block-start', index: 0, blockType: 'text' }
+      yield { type: 'text-delta', index: 0, text: item.text }
+      yield { type: 'block-end', index: 0, block: { type: 'text', text: item.text } }
+      yield { type: 'finish', reason: { kind: item.finish ?? 'stop' } }
+    },
+  }
+  host.get = (name) => (name === 'llm' ? host.llm : undefined)
+  return host
+}
+
 test('parseJsonPayload tolerates prose, fences, arrays and envelopes', () => {
   assert.deepEqual(parseJsonPayload('{"lessons":[{"text":"a"}]}'), { lessons: [{ text: 'a' }] })
   assert.deepEqual(parseJsonPayload('说明\n```json\n{"lessons":[{"text":"b"}]}\n```\n结束'), { lessons: [{ text: 'b' }] })
@@ -70,9 +90,10 @@ test('parseJsonPayload tolerates prose, fences, arrays and envelopes', () => {
 
 test('config exposes LLM distillation, reflection and vector defaults', () => {
   const config = Config({})
-  assert.equal(config.write.distillMaxTokens, 512)
+  assert.equal(config.write.distillMaxTokens, 900)
   assert.equal(config.reflect.enabled, false)
   assert.equal(config.reflect.days, 7)
+  assert.equal(config.reflect.maxTokens, 1600)
   assert.equal(config.vector.enabled, false)
   assert.equal(config.vector.dimensions, 1536)
   assert.equal(config.vector.weight, 0.35)
@@ -191,6 +212,56 @@ test('reflection accepts common envelopes and repairs non-JSON replies', async (
     })
     assert.equal(fallback.ok, true)
     assert.ok(fallback.created >= 1)
+  } finally {
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('reflection salvages complete lessons from a truncated JSON reply', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'memory4-reflect-truncated-'))
+  const store = openMemoryStore({ filePath: join(dir, 'memory.db') })
+  try {
+    store.put(buildRecord({ kind: 'episodic', text: '截断输出测试', scope: 'workspace', scopeKey: 'D:\\Work\\A' }))
+    const truncated = '{"lessons":[{"text":"第一条结论足够长"},{"text":"第二条结论足够长"},{"text":"第三条被截'
+    const ctx = llmHost(truncated)
+    const result = await reflectNow({
+      ctx,
+      store,
+      config: Config({ reflect: { enabled: true, minEpisodes: 1 } }),
+      session: makeSession(),
+      days: 7,
+      force: true,
+    })
+    assert.equal(result.ok, true)
+    assert.equal(result.created, 2)
+  } finally {
+    store.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('reflection retries with a larger budget after a max-tokens cut', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'memory4-reflect-length-'))
+  const store = openMemoryStore({ filePath: join(dir, 'memory.db') })
+  try {
+    store.put(buildRecord({ kind: 'episodic', text: '长度截断测试', scope: 'workspace', scopeKey: 'D:\\Work\\A' }))
+    const host = llmHostScript([
+      { text: '{"lessons":[{"text":"第一次被截断的结论足够长"},{"text":"第二', finish: 'max-tokens' },
+      { text: '{"lessons":[{"text":"重试后得到的完整结论"}]}', finish: 'stop' },
+    ])
+    const result = await reflectNow({
+      ctx: host,
+      store,
+      config: Config({ reflect: { enabled: true, minEpisodes: 1 } }),
+      session: makeSession(),
+      days: 7,
+      force: true,
+    })
+    assert.equal(result.ok, true)
+    assert.equal(result.created, 1)
+    assert.equal(host.calls, 2)
+    assert.ok(store.listAudit(20).some((entry) => entry.action === 'memory/reflection-length-retry'))
   } finally {
     store.close()
     rmSync(dir, { recursive: true, force: true })

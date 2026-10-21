@@ -1,6 +1,6 @@
 {
   "name": "dsh-memory4",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "Four-in-one memory for DeepSeek Harness: working, episodic, semantic and procedural memory with explicit write/recall policies and compaction handoff.",
   "type": "module",
