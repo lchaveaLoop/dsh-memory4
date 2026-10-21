@@ -1,0 +1,16 @@
+# dsh-memory4 bundle layer: one insert row over the profile root.
+#
+# Install:
+#   dsh plugin --profile web add link:D:\Projects\dsh-memory4
+#
+# The user layer can override this row by id:
+#   - id: memory4
+#     config: { inject: { maxTokens: 400 } }
+# or disable it:
+#   - id: memory4
+#     disabled: true
+- insert:
+    - id: memory4
+      name: dsh-memory4
+      config:
+        enabled: true
