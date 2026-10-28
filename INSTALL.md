@@ -1,6 +1,16 @@
 # 安装与验收（dsh-memory4）
 
-> 适用：本机 DSH `0.2.1-rc.2`。**Desktop 应用使用 `desktop` profile**；`dsh web` 命令行使用 `web` profile。两个 profile 各自独立，需要分别安装。
+> 适用：本机 DSH `0.2.1-rc.3`（与 `D:\DSH\resources\runtime\cli\bin\dsh.cmd --version` 一致）。插件要求 `package.json` 顶层 `engines.dsh` 命中宿主版本：本版本为 `>=0.2.1-rc.3 <0.3.0`。**Desktop 应用使用 `desktop` profile**；`dsh web` 命令行使用 `web` profile。两个 profile 各自独立，需要分别安装。
+
+## 0. 从 rc.2 升级（重要）
+
+DSH `0.2.1-rc.3` 起，profile 启动/安装会**强制校验**插件的 DSH 版本要求（见安装日志中的 `Incompatible plugin … requirements`）。0.3.3 及更早版本把范围写在 `package.json.dsh.engines.dsh`（宿主不读该位置），而 `peerDependencies` 钉死在 `0.2.1-rc.2`；升级到 rc.3 后整层 bundle 被拒绝加载，表现为：
+
+- 会话工具列表里没有 `memory_write` / `memory_search` / `memory_read` / `memory_forget` / `memory_pin`；
+- Settings 左侧没有「记忆」页；
+- `$DSH_HOME/memory4/memory.db` 的 `audit` 表在新宿主启动后没有新的 `memory4/start` 记录。
+
+0.4.0 已修复：`engines.dsh` 移到 `package.json` 顶层，`peerDependencies` 同步到 `0.2.1-rc.3`。**改完 `package.json` 后必须重启 DSH Desktop**（兼容性只在 profile 组合/启动时判定；如需临时豁免可用 `dsh plugin --profile desktop allow-version dsh-memory4@<版本> --dsh-version 0.2.1-rc.3 --accept-risk`，但这只是绕过风险，优先升级插件）。
 
 ## 1. 安装
 
@@ -35,7 +45,7 @@ D:\DSH\resources\runtime\cli\bin\dsh.cmd --profile web --dump-config | Select-St
     enabled: true
 ```
 
-> 注意：本机 web profile 的 `--dump-config-schema` 目前会因既有第三方插件（dsh-verbosity 源目录缺失、`@linxin666` 插件与 rc.2 的 `dsh-settings` 导出不匹配）报错，属安装前已有问题，不是 dsh-memory4 引入；dsh-memory4 自身在 `memory4test` 临时 profile 中 schema dump 为 `"complete": true`。
+> 注意：本机 web profile 的 `--dump-config-schema` 可能因既有第三方插件（`dsh-verbosity` 源目录缺失、`@linxin666` 插件与当前 `dsh-settings` 导出不匹配）报错，属安装前已有问题，不是 dsh-memory4 引入；dsh-memory4 自身在 `memory4test` 临时 profile 中 schema dump 为 `"complete": true`。若 `--dump-config` 输出里出现 `Incompatible plugin` 或缺少 `id: memory4`，按 §0 检查 `package.json.engines.dsh`。
 
 ## 3. Settings「记忆」页（client UI，0.2.0 新增）
 
@@ -139,7 +149,7 @@ D:\DSH\resources\runtime\cli\bin\dsh.cmd plugin --profile web remove dsh-memory4
 
 ```powershell
 cd D:\Projects\dsh-memory4
-node --test          # 22+ 离线用例
+node --test          # 51 个离线用例（含 manifest 兼容性）
 ```
 
 修改源码后：`link:` 安装会跟随源码；重启宿主（或等待 profile 重组）即可加载新代码。
@@ -158,6 +168,8 @@ node --test          # 22+ 离线用例
   - `desktop` profile 的 `chat-tree: link:D:/Projects/chatTree` 是悬空软链（目标不存在且不在 bundles 中），已从 desktop profile 依赖中移除；备份见 `D:\tmp\dsh-memory-research\desktop-profile-backup-20261020-180318`。
   - web profile 安装前备份：`D:\tmp\dsh-memory-research\web-profile-backup-20261020-180211`。
   - 临时验证 profile `memory4test` / `memory4web` 已于 2026-10-21 按用户要求删除；`desktop` 与 `web` 两个正式 profile 保持安装。
+  - **0.4.0 修复（适配 DSH 0.2.1-rc.3）**：宿主升级 rc.3 后插件不再加载（无 memory 工具、无 Settings「记忆」页、`audit` 表无新的 `memory4/start`）。根因是 rc.3 起 profile 启动强校验 DSH 版本要求：0.3.3 把范围写在宿主不读取的 `dsh.engines.dsh`，同时 `peerDependencies` 钉死 `0.2.1-rc.2`，于是回退到 peer 校验并判定不满足，整层 bundle 被拒绝。现在 `engines.dsh: ">=0.2.1-rc.3 <0.3.0"` 位于 `package.json` 顶层、peer 同步到 `0.2.1-rc.3`，新增 `test/manifest.test.js` 锁定该契约。**改完需重启 Desktop**（若运行中的宿主触发 profile 重组则可能直接生效）；重启后确认 `audit` 出现新的 `memory4/start`、`/memory status` 可用。
+    实测（2026-10-28，运行中的 rc.3 Desktop 宿主，profile 重组触发热加载）：`audit` 新增 `memory4/start version=0.4.0 pid=3680`，随后一轮请求出现 `<memory-context source="dsh-memory4">` 注入块，说明 host 半已正常加载并工作。
   - **0.3.1 修复**：Settings「反思」曾报 `cannot get property 'llm' without inject`。原因是 host 插件未声明 LLM 服务 inject；现改为 `ctx.get('llm', false)` 获取服务，并在无会话的 UI 场景下复用最新活跃会话的路由模型。修复后点「反思」如仍报旧错，重启一次 Desktop 让 host 插件重新加载。
   - **0.3.2 修复**：点「反思」报 `model output was not a lessons array`。原因是模型可能输出解释文字、Markdown 代码块、数组或 `items` 等不同信封；现在解析器会扫描平衡 JSON、容忍多种信封、在失败时自动发起一次"修复为 JSON"的模型调用，并支持从编号/子弹行兜底提取结论；仍失败时审计保存原始输出并显示可读错误。
   - **0.3.3 修复**：继续报同样错误。审计（`select * from audit where action='memory/reflection-parse-failed'`）显示原始输出只有 514 字符且在一个 `"text"` 字符串中间被截断——`reflect.maxTokens=700` 被推理 token 吃掉，JSON 不完整，旧解析无法抢救。现在：默认预算提升到 1600；`finish=max-tokens` 时自动加倍重试一次；从截断 JSON 中抢救已完整的 `"text"` 条目；失败审计记录 `finish=` 与最多 8000 字符原文。本机 desktop profile 已加 HMR `root` 监视，保存源码即热重载，无需重启（详见 §10）。

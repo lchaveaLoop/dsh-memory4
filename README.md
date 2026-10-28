@@ -2,7 +2,7 @@
 
 DeepSeek Harness 的四合一记忆插件：**工作记忆、情景记忆、语义记忆、程序性记忆**统一存储，带可配置的**写入策略**、**取用策略**、**压缩联动**与**审计**。
 
-> 基线：DSH `0.2.1-rc.2`（`dsh-base` + `dsh-web-app` 组合）。默认纯本地、零外部服务、零运行时 npm 依赖（SQLite 使用 Node 内建 `node:sqlite`）；LLM 蒸馏/反思与向量检索为**可选**能力，显式开启后才会调用已配置的模型 / embedding 端点。
+> 基线：DSH `0.2.1-rc.3`（`dsh-base` + `dsh-web-app` 组合）。兼容范围由 `package.json` 顶层 `engines.dsh` 声明，宿主在 profile 启动时强校验（见[兼容性与版本](#兼容性与版本)）。默认纯本地、零外部服务、零运行时 npm 依赖（SQLite 使用 Node 内建 `node:sqlite`）；LLM 蒸馏/反思与向量检索为**可选**能力，显式开启后才会调用已配置的模型 / embedding 端点。
 
 ## 它解决什么
 
@@ -16,6 +16,7 @@ DeepSeek Harness 的四合一记忆插件：**工作记忆、情景记忆、语�
 ## 已实现（P0 + P1 + Settings UI + P2）
 
 - profile bundle 插件形态（`dsh.bundle.patch` → `cordis.patch.yml` 一行 insert）
+- **DSH 版本声明符合 rc.3 宿主强校验**：顶层 `engines.dsh` + 同步的 `peerDependencies`（`0.2.1-rc.3`），由 `test/manifest.test.js` 锁定
 - **Desktop / Web Settings 页「记忆」**：概览、搜索、按类型过滤、钉住、删除、技能草稿审批/拒绝、最近自动活动、导出 JSON / Markdown、一键反思（client 半 + 本机 `/api/memory4/*` 路由）
 - SQLite 存储（WAL，FTS5 trigram，schema v3：records / pins / audit / skill_evidence / skills / vectors）
 - 模型工具：`memory_write`、`memory_search`、`memory_read`、`memory_forget`、`memory_pin`
@@ -30,7 +31,7 @@ DeepSeek Harness 的四合一记忆插件：**工作记忆、情景记忆、语�
 - 审计：自动写入、handoff、压缩摘要、反思、导入导出、技能草稿/审批/拒绝全部落 `audit` 表
 - 保留策略：启动时与 `/memory prune [days]` 归档超过 `retention.episodicDays` 的情景记忆（归档保留、不参与检索）
 - 作用域：session / workspace（`session.header.cwd` 精确匹配）/ user（全局）
-- 离线测试：40 个 `node:test` 用例（存储/检索/注入去重/抽取/压缩联动/技能/命令/生命周期/保留策略/UI 路由/client bundle/LLM 蒸馏/反思/向量/Markdown + 6 个验收场景）
+- 离线测试：51 个 `node:test` 用例（存储/检索/注入去重/抽取/压缩联动/技能/命令/生命周期/保留策略/UI 路由/client bundle/LLM 蒸馏/反思/向量/Markdown/manifest 兼容性 + 6 个验收场景）
 
 ## 尚未实现（后续可选）
 
@@ -163,19 +164,20 @@ cd D:\Projects\dsh-memory4
 node --test
 ```
 
-当前 47/47 通过（存储、检索、注入去重、压缩联动、技能草稿/审批、保留策略、命令、UI 路由与 client bundle、LLM 蒸馏/反思（含 ctx.get 服务访问、活跃会话路由复用、JSON 解析修复、截断抢救与重试）、向量检索、Markdown 导入导出、插件生命周期，以及 A1–A6 验收场景）。安装与重启后验收步骤见 [INSTALL.md](INSTALL.md)。
+当前 51/51 通过（存储、检索、注入去重、压缩联动、技能草稿/审批、保留策略、命令、UI 路由与 client bundle、LLM 蒸馏/反思（含 ctx.get 服务访问、活跃会话路由复用、JSON 解析修复、截断抢救与重试）、向量检索、Markdown 导入导出、插件生命周期、manifest 兼容性（`engines.dsh`/peer/入口约束），以及 A1–A6 验收场景）。安装与重启后验收步骤见 [INSTALL.md](INSTALL.md)。
 
 ## 开发期热重载（0.3.3 起本机 desktop profile 已配置）
 
 - **host 插件**：desktop profile 的 `cordis.patch.yml` 已加入 `hmr` 的 `root: ["D:/Projects/dsh-memory4"]`。保存 `lib/*.js` 后 HMR 自动重载插件（约几秒），无需重启 Desktop。
 - **client 插件**：`client-hmr` 每 500ms 轮询 `lib/client.js` 的 mtime/size，变化后经 `/plugins/events` SSE 热替换页面 UI，保存即生效。
-- **仍需重启 / 重装**：修改 `package.json` 的 `main`/`exports`/`dsh.client`/`dsh.bundle` 等元数据、新增 client 入口、profile manifest 或安装依赖变更。
+- **仍需重启 / 重装**：修改 `package.json` 的 `main`/`exports`/`dsh.client`/`dsh.bundle`/`engines.dsh` 等元数据、新增 client 入口、profile manifest 或安装依赖变更。**宿主版本兼容性只在 profile 组合/启动时评估，升级 DSH 或改动 `engines.dsh` 后必须重启宿主**（运行中的旧进程不会重新判定）。
 - **插件级热插拔**：Settings → 插件 中禁用/启用 `memory4` 会卸载/重挂 host 与 client，无需重启应用。
 - **诊断**：每次 host 插件 apply 都写 `memory4/start` 审计（含 version/pid）；`/memory log` 可查最近重载记录。
 
 ## 兼容性与版本
 
-- `dsh.engines.dsh: ">=0.2.1-rc.2 <0.3.0"`（npm/本机当前线）。
-- 依赖 DSH 插件 API：`ctx.tools`、`ctx.commands`、`ctx.sessionProjections`、`agent/pre-step`、`session/event`、`defineTool`、`createUserMessage`；可选 `ctx.llm.stream`（LLM 蒸馏/反思）与 `ctx.webServer`（Settings UI 路由）。
-- DSH 升级后需跑离线测试并复核 session 事件形状。
-- 版本：`0.3.3`（P2：LLM 蒸馏、反思聚合、向量检索、Markdown 导入导出；0.3.1 修复 LLM 服务访问；0.3.2 强化 JSON 解析；0.3.3 修复反思输出被 max-tokens 截断：自动加倍重试 + 从截断 JSON 抢救完整条目 + 审计记录 finish/原文）。
+- **`package.json` 顶层 `engines.dsh: ">=0.2.1-rc.3 <0.3.0"`**。DSH 自 `0.2.1-rc.3` 起在 profile 启动/安装时强校验插件 DSH 版本要求：清单声明了 `engines.dsh` 时只按该范围判定；未声明时改为逐一校验 `peerDependencies` 中 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*` 的范围。不满足则整层 bundle 被拒绝加载（宿主日志报 `Incompatible plugin … requirements`），插件会**静默消失**（无 memory 工具、无 Settings「记忆」页）。
+- `peerDependencies` 同步到 `0.2.1-rc.3`（`@deepseek-ai/dsh-commands`/`-llm`/`-session`/`-tools` 与 `@deepseek-ai/cordis ~4.0.5`）。`engines.dsh` 已声明时 peer 不参与判定，但保持一致以免安装器/备用路径误判。
+- 依赖 DSH 插件 API：`ctx.tools`、`ctx.commands`、`ctx.sessionProjections`、`agent/pre-step`、`session/event`、`defineTool`、`createUserMessage`；可选 `ctx.llm.stream`（LLM 蒸馏/反思）与 `ctx.webServer`（Settings UI 路由）。这些 API 声明在 `0.2.1-rc.2 → rc.3` 之间未变更，代码无需分支。
+- DSH 再升级（`0.3.x` 或新的 `0.2.1-rc.*`）后：先跑离线测试，再核对本节的版本范围，最后重启宿主确认 `memory4/start` 审计出现。
+- 版本：`0.4.0`（**适配 DSH `0.2.1-rc.3`**：把版本范围从无效的 `dsh.engines.dsh` 移到 `package.json` 顶层 `engines.dsh`，peer 从 `0.2.1-rc.2` 升到 `0.2.1-rc.3`，新增 manifest 兼容性测试；修复升级 rc.3 后插件被宿主拒绝加载、memory 工具与 Settings 页消失的问题。功能与 0.3.3 相同：P2 的 LLM 蒸馏、反思聚合、向量检索、Markdown 导入导出；0.3.1 修复 LLM 服务访问；0.3.2 强化 JSON 解析；0.3.3 修复反思输出被 max-tokens 截断）。

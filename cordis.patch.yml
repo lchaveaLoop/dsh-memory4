@@ -1,5 +1,9 @@
 # dsh-memory4 bundle layer: one insert row over the profile root.
 #
+# Requires dsh 0.2.1-rc.3+ (package.json top-level engines.dsh:
+# ">=0.2.1-rc.3 <0.3.0"). DSH validates that range at profile startup and
+# refuses the whole bundle layer when it does not match the running host.
+#
 # Install:
 #   dsh plugin --profile web add link:D:\Projects\dsh-memory4
 #
